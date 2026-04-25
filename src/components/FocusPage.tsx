@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Activity } from "./Activity";
 import { IconPlus } from "./icons";
@@ -6,6 +6,7 @@ import { TaskCard } from "./TaskCard";
 import { TimerPanel } from "./TimerPanel";
 import { Task } from "../types";
 import { isEditableKeyboardTarget } from "../keyboard";
+import { ONE_HOUR_SECONDS } from "../utils";
 
 function createTask(title: string): Task {
   return {
@@ -36,6 +37,10 @@ export function FocusPage({
   const [newTask, setNewTask] = useState("");
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [sprintLocksTaskSelection, setSprintLocksTaskSelection] = useState(false);
+  const [remainingSeconds, setRemainingSeconds] = useState(ONE_HOUR_SECONDS);
+  const [running, setRunning] = useState(false);
+  const [sprintEngaged, setSprintEngaged] = useState(false);
+  const [sessionDateRefreshKey, setSessionDateRefreshKey] = useState(0);
   const reduceMotion = useReducedMotion();
 
   const activeTask = useMemo(
@@ -85,14 +90,31 @@ export function FocusPage({
     );
   };
 
-  const onTick = useCallback(() => {
-    setTasks((prev) => {
-      if (!activeTaskId) return prev;
-      return prev.map((task) =>
-        task.id === activeTaskId && !task.completed ? { ...task, spentSeconds: task.spentSeconds + 1 } : task
-      );
-    });
-  }, [activeTaskId]);
+  useEffect(() => {
+    if (!running) return;
+    const id = window.setInterval(() => {
+      setRemainingSeconds((prev) => {
+        if (prev <= 1) {
+          setRunning(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+      setTasks((prev) => {
+        if (!activeTaskId) return prev;
+        return prev.map((task) =>
+          task.id === activeTaskId && !task.completed ? { ...task, spentSeconds: task.spentSeconds + 1 } : task
+        );
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [running, activeTaskId, setTasks]);
+
+  useEffect(() => {
+    if (surfaceActive) {
+      setSessionDateRefreshKey((prev) => prev + 1);
+    }
+  }, [surfaceActive]);
 
   useEffect(() => {
     if (tasks.length === 0) {
@@ -234,11 +256,26 @@ export function FocusPage({
 
         <TimerPanel
           activeTask={activeTask}
-          onTick={onTick}
+          remainingSeconds={remainingSeconds}
+          running={running}
+          sprintEngaged={sprintEngaged}
           fullscreen={sprintFullscreen}
           onFullscreenChange={setSprintFullscreen}
           onSprintLocksTaskSelection={setSprintLocksTaskSelection}
-          countdownActive={surfaceActive}
+          onStart={() => {
+            if (!activeTask || activeTask.completed || remainingSeconds === 0 || running) return;
+            setRunning(true);
+            setSprintEngaged(true);
+          }}
+          onPause={() => {
+            setRunning(false);
+          }}
+          onRestart={() => {
+            setRunning(false);
+            setSprintEngaged(false);
+            setRemainingSeconds(ONE_HOUR_SECONDS);
+          }}
+          sessionDateRefreshKey={sessionDateRefreshKey}
         />
       </main>
     </div>
